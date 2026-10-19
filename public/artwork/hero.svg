@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="600" viewBox="0 0 1100 600" role="img" aria-label="Paisagem abstrata original com um sol e anéis dourados sobre dunas">
+<defs><filter id="grain"><feTurbulence type="fractalNoise" baseFrequency=".8" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncA type="linear" slope=".14"/></feComponentTransfer><feBlend in="SourceGraphic" mode="soft-light"/></filter>
+<linearGradient id="sky" x2="1" y2="1"><stop stop-color="#172a26"/><stop offset=".52" stop-color="#374633"/><stop offset="1" stop-color="#797448"/></linearGradient>
+<radialGradient id="glow"><stop stop-color="#d3a563" stop-opacity=".52"/><stop offset="1" stop-color="#d3a563" stop-opacity="0"/></radialGradient>
+<radialGradient id="sun" cx="26%" cy="20%" r="85%"><stop stop-color="#f4c67e"/><stop offset=".43" stop-color="#c17a3a"/><stop offset=".8" stop-color="#804124"/><stop offset="1" stop-color="#41251c"/></radialGradient>
+<linearGradient id="gold" x1=".12" y1="0" x2=".8" y2="1"><stop stop-color="#734c2f"/><stop offset=".23" stop-color="#e7c389"/><stop offset=".4" stop-color="#c99450"/><stop offset=".64" stop-color="#775030"/><stop offset=".86" stop-color="#e4b476"/><stop offset="1" stop-color="#987044"/></linearGradient>
+<linearGradient id="sand" x1="0" y1="0" x2=".7" y2="1"><stop stop-color="#b77341"/><stop offset=".56" stop-color="#784329"/><stop offset="1" stop-color="#3a2d20"/></linearGradient>
+<linearGradient id="foreground" x2="0" y2="1"><stop stop-color="#785136"/><stop offset="1" stop-color="#211e18"/></linearGradient>
+<linearGradient id="shade"><stop stop-color="#152622" stop-opacity=".8"/><stop offset=".52" stop-color="#152622" stop-opacity=".15"/><stop offset="1" stop-color="#152622" stop-opacity="0"/></linearGradient>
+<filter id="blur"><feGaussianBlur stdDeviation="18"/></filter>
+</defs>
+<rect width="1100" height="600" fill="url(#sky)"/>
+<g filter="url(#grain)"><ellipse cx="810" cy="218" rx="390" ry="340" fill="url(#glow)"/>
+<path d="M0 406Q174 301 364 369T705 330Q890 307 1100 373V600H0" fill="#525239"/>
+<path d="M0 475Q235 348 470 404Q692 446 833 338Q960 285 1100 348V600H0" fill="url(#sand)"/>
+<ellipse cx="823" cy="456" rx="191" ry="25" fill="#22251b" opacity=".65" filter="url(#blur)"/>
+<g transform="translate(828 253)">
+<ellipse rx="178" ry="73" transform="rotate(-32)" fill="none" stroke="#49371f" stroke-width="58"/>
+<circle r="116" fill="url(#sun)"/>
+<path d="M-155 103C-72 162 126 56 170-63" fill="none" stroke="url(#gold)" stroke-width="56" stroke-linecap="round"/>
+<path d="M-165 91C-99 164 128 54 168-66" fill="none" stroke="#f1d5a0" stroke-width="1.4" opacity=".6"/>
+<ellipse rx="178" ry="73" transform="rotate(-32)" fill="none" stroke="url(#gold)" stroke-width="3" opacity=".7"/>
+</g>
+<path d="M0 553Q153 418 351 481Q550 546 711 472Q896 380 1100 464V600H0" fill="url(#foreground)"/>
+<path d="M0 553Q153 418 351 481Q550 546 711 472Q896 380 1100 464" fill="none" stroke="#c18b59" stroke-width="1.2" opacity=".4"/>
+<path d="M685 544Q895 436 1100 508" fill="none" stroke="#b17b4d" opacity=".17"/>
+</g><rect width="1100" height="600" fill="url(#shade)"/></svg>
