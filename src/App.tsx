@@ -8,7 +8,6 @@ import {
   Check,
   CircleAlert,
   Disc3,
-  FolderOpen,
   Headphones,
   Heart,
   Home,
@@ -19,59 +18,24 @@ import {
   Pause,
   Play,
   Plus,
-  Repeat,
-  Repeat1,
   Search,
-  Shuffle,
-  SkipBack,
-  SkipForward,
-  Sparkles,
   Trash2,
-  Volume1,
-  Volume2,
-  VolumeX,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { IconButton } from "./components/IconButton";
+import { EmptyState } from "./components/EmptyState";
+import { Home as HomePage } from "./components/Home";
+import { SearchPage } from "./components/SearchPage";
+import { LibraryPage } from "./components/LibraryPage";
+import { Player } from "./components/Player";
+import { formatTime } from "./utils/formatTime";
 import { demoTracks } from "./data/catalog";
+import { useCatalog } from "./hooks/useCatalog";
 import { useAudioPlayer } from "./hooks/useAudioPlayer";
 import { useLibrary } from "./hooks/useLibrary";
+import { useLocalTracks } from "./hooks/useLocalTracks";
 import type { Playlist, Track } from "./types";
-
-function formatTime(seconds: number) {
-  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
-  return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, "0")}`;
-}
-
-function IconButton({
-  icon: Icon,
-  label,
-  onClick,
-  active,
-  disabled = false,
-  className = "",
-}: {
-  icon: LucideIcon;
-  label: string;
-  onClick: () => void;
-  active?: boolean;
-  disabled?: boolean;
-  className?: string;
-}) {
-  return (
-    <button
-      className={`icon-button ${active ? "is-active" : ""} ${className}`}
-      type="button"
-      title={label}
-      aria-label={label}
-      aria-pressed={active}
-      onClick={onClick}
-      disabled={disabled}
-    >
-      <Icon size={20} strokeWidth={1.8} />
-    </button>
-  );
-}
 
 export default function App() {
   const [route, setRoute] = useState(
@@ -79,7 +43,8 @@ export default function App() {
   );
   const [query, setQuery] = useState("");
   const [genre, setGenre] = useState("Tudo");
-  const [localTracks, setLocalTracks] = useState<Track[]>([]);
+  const localAudio = useLocalTracks();
+  const { tracks: localTracks, importing } = localAudio;
   const [mobileMenu, setMobileMenu] = useState(false);
   const [queueOpen, setQueueOpen] = useState(false);
   const [libraryTab, setLibraryTab] = useState("favorites");
@@ -89,17 +54,17 @@ export default function App() {
   const [playlistInitialTrack, setPlaylistInitialTrack] =
     useState<Track | null>(null);
   const [addTrack, setAddTrack] = useState<Track | null>(null);
-  const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState("");
   const [detailsTrack, setDetailsTrack] = useState<Track | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const playlistDialog = useRef<HTMLDialogElement>(null);
   const addDialog = useRef<HTMLDialogElement>(null);
   const infoDialog = useRef<HTMLDialogElement>(null);
-  const localUrls = useRef<string[]>([]);
   const player = useAudioPlayer(demoTracks);
   const library = useLibrary();
-  const tracks = [...demoTracks, ...localTracks];
+  const catalog = useCatalog();
+  const shelfTracks = [...demoTracks, ...catalog.tracks]; // demo + catálogo do usuário
+  const tracks = [...shelfTracks, ...localTracks];
   const favoriteTracks = tracks.filter((t) => library.favorites.includes(t.id));
   const selectedPlaylist = library.playlists.find(
     (p) => route === `playlist/${p.id}`,
@@ -117,9 +82,8 @@ export default function App() {
       .toLowerCase()
       .includes(normalizedQuery);
   const visibleTracks = tracks.filter(matches);
-  const homeGenre = ["Tudo", "Eletrônica", "Ambient", "Lo-fi"].includes(genre)
-    ? genre
-    : "Tudo";
+  const homeGenre = genre === "Local" ? "Tudo" : genre;
+  const catalogGenres = [...new Set(shelfTracks.map((track) => track.genre))];
 
   useEffect(() => {
     const onHash = () => {
@@ -138,12 +102,6 @@ export default function App() {
   useEffect(() => {
     document.title = `${selectedPlaylist?.name || (route === "biblioteca" ? "Sua biblioteca" : route === "buscar" ? "Buscar" : "Descobrir")} · Galada`;
   }, [route, selectedPlaylist?.name]);
-  useEffect(
-    () => () => {
-      localUrls.current.forEach((url) => URL.revokeObjectURL(url));
-    },
-    [],
-  );
   useEffect(() => {
     if (!mobileMenu) return;
     const previousFocus = document.activeElement as HTMLElement | null;
@@ -185,6 +143,11 @@ export default function App() {
     if (nextRoute === "descobrir" && genre === "Local") setGenre("Tudo");
     window.location.hash = nextRoute;
     setMobileMenu(false);
+  };
+  const openFiles = () => fileInput.current?.click();
+  const showDetails = (track: Track | null) => {
+    setDetailsTrack(track);
+    infoDialog.current?.showModal();
   };
   const notify = (message: string) => setToast(message);
   const favorite = (track: Track) => {
@@ -236,92 +199,19 @@ export default function App() {
 
   async function importFiles(files: FileList | null) {
     if (!files?.length) return;
-    setImporting(true);
     setImportError("");
-    const imported: Track[] = [];
-    let rejected = 0;
-    for (const file of Array.from(files).slice(0, 30)) {
-      if (
-        (!file.type.startsWith("audio/") &&
-          !/\.(mp3|wav|ogg|m4a|aac|flac|webm)$/i.test(file.name)) ||
-        file.size > 100 * 1024 * 1024
-      ) {
-        rejected++;
-        continue;
-      }
-      const url = URL.createObjectURL(file);
-      try {
-        const duration = await new Promise<number>((resolve, reject) => {
-          const audio = new Audio();
-          const timeout = window.setTimeout(() => {
-            cleanup();
-            reject(new Error("timeout"));
-          }, 8000);
-          function cleanup() {
-            window.clearTimeout(timeout);
-            audio.onloadedmetadata = null;
-            audio.onerror = null;
-            audio.removeAttribute("src");
-            audio.load();
-          }
-          audio.preload = "metadata";
-          audio.onloadedmetadata = () => {
-            const value = audio.duration;
-            cleanup();
-            Number.isFinite(value) && value > 0
-              ? resolve(value)
-              : reject(new Error("duration"));
-          };
-          audio.onerror = () => {
-            cleanup();
-            reject(new Error("format"));
-          };
-          audio.src = url;
-        });
-        localUrls.current.push(url);
-        const signature = `${file.name}:${file.size}:${file.lastModified}`;
-        const id = `local-${Array.from(signature)
-          .reduce(
-            (hash, character) =>
-              Math.imul(hash ^ character.charCodeAt(0), 16777619) >>> 0,
-            2166136261,
-          )
-          .toString(36)}-${file.size}`;
-        imported.push({
-          id,
-          title: file.name.replace(/\.[^.]+$/, ""),
-          artist: "Arquivo local",
-          album: "Seus arquivos",
-          genre: "Local",
-          duration,
-          cover: "/artwork/antes-do-sol.svg",
-          src: url,
-          source: "local",
-        });
-      } catch {
-        URL.revokeObjectURL(url);
-        rejected++;
-      }
-    }
-    setLocalTracks((current) => [
-      ...current,
-      ...imported.filter(
-        (track, index) =>
-          !current.some((existing) => existing.id === track.id) &&
-          imported.findIndex((item) => item.id === track.id) === index,
-      ),
-    ]);
-    setImporting(false);
+    const result = await localAudio.importFiles(Array.from(files));
     if (fileInput.current) fileInput.current.value = "";
-    if (imported.length) {
+    if (result.opened) {
       setLibraryTab("local");
       go("biblioteca");
-      notify(`${imported.length} arquivo(s) disponível(is) nesta sessão.`);
+      notify(result.saved === result.opened
+        ? `${result.opened} arquivo(s) salvo(s) neste navegador.`
+        : `${result.opened} arquivo(s) aberto(s) para ouvir.`);
     }
-    if (rejected || files.length > 30)
-      setImportError(
-        "Alguns arquivos não foram abertos. Use áudio compatível de até 100 MB e selecione no máximo 30 arquivos por vez.",
-      );
+    if (result.rejected) setImportError(
+      "Alguns arquivos não foram abertos. Use áudio compatível de até 100 MB e selecione no máximo 30 arquivos por vez.",
+    );
   }
 
   const trackRows = (
@@ -597,7 +487,7 @@ export default function App() {
             <button
               className="import-button"
               onClick={() => fileInput.current?.click()}
-              disabled={importing}
+              disabled={importing || localAudio.loading}
             >
               <ArrowDownToLine size={16} />
               <span>
@@ -635,6 +525,12 @@ export default function App() {
               </p>
             </div>
           )}
+          {localAudio.storageError && (
+            <div className="notice" role="status">
+              <CircleAlert size={18} />
+              <p>{localAudio.storageError}</p>
+            </div>
+          )}
           {importError && (
             <div className="notice error-notice" role="alert">
               <CircleAlert size={18} />
@@ -646,436 +542,34 @@ export default function App() {
               />
             </div>
           )}
+          {(catalog.status === "error" || catalog.skipped.length > 0) && (
+            <div className="notice error-notice" role="status">
+              <CircleAlert size={18} />
+              <span>
+                {catalog.status === "error"
+                  ? `${catalog.error} As faixas de demonstração continuam disponíveis.`
+                  : `${catalog.skipped.length} faixa(s) de catalog.json foram ignoradas: ${catalog.skipped[0]}`}
+              </span>
+            </div>
+          )}
           {route === "descobrir" && (
-            <>
-              <div className="page-intro">
-                <div>
-                  <p className="eyebrow">MENOS RUÍDO. MAIS MÚSICA.</p>
-                  <h1>
-                    Encontre sua frequência<span>.</span>
-                  </h1>
-                  <p>Novos sons para acompanhar o seu ritmo.</p>
-                </div>
-                <span className="intro-decoration">
-                  <AudioLines size={32} strokeWidth={1.2} />
-                </span>
-              </div>
-              <section className="hero" aria-label="Seleção em destaque">
-                <img
-                  className="hero-art"
-                  src="/artwork/hero.svg"
-                  alt="Arte abstrata original: um sol laranja entre anéis e paisagens onduladas"
-                />
-                <div className="hero-shade" />
-                <div className="hero-content">
-                  <span className="hero-kicker">
-                    <span /> SELEÇÃO GALADA <i>VOL. 01</i>
-                  </span>
-                  <h2>
-                    Dê um respiro.
-                    <br />
-                    Sinta o som.
-                  </h2>
-                  <p>
-                    Texturas eletrônicas, batidas leves e um mundo
-                    <br className="desktop-break" /> inteiro entre os fones.
-                  </p>
-                  <div className="hero-buttons">
-                    <button
-                      className="primary-button"
-                      onClick={() =>
-                        player.playTrack(demoTracks[0], demoTracks)
-                      }
-                    >
-                      <Play size={17} fill="currentColor" />
-                      Ouvir seleção
-                    </button>
-                    <a
-                      className="hero-explore"
-                      href="#faixas"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        document.getElementById("faixas")?.scrollIntoView({
-                          behavior: window.matchMedia(
-                            "(prefers-reduced-motion: reduce)",
-                          ).matches
-                            ? "instant"
-                            : "smooth",
-                          block: "start",
-                        });
-                      }}
-                    >
-                      Explorar faixas <ArrowRight size={16} />
-                    </a>
-                  </div>
-                  <span className="hero-meta">
-                    6 COMPOSIÇÕES ORIGINAIS <span>·</span> DEMONSTRAÇÃO
-                  </span>
-                </div>
-                <div className="hero-stamp">
-                  <span>ESCUTE COM CALMA</span>
-                  <AudioLines size={19} />
-                  <span>FIQUE À VONTADE</span>
-                </div>
-              </section>
-              <section className="discovery-section" id="faixas">
-                <div className="section-heading">
-                  <div>
-                    <p className="eyebrow">ESCOLHA A SUA VIBE</p>
-                    <h2>Entre na frequência</h2>
-                  </div>
-                  <button
-                    className="subtle-link"
-                    onClick={() => {
-                      setQuery("");
-                      setGenre("Tudo");
-                      go("buscar");
-                    }}
-                  >
-                    Ver todas <ArrowRight size={16} />
-                  </button>
-                </div>
-                <div className="genre-filters" aria-label="Filtrar por gênero">
-                  {["Tudo", "Eletrônica", "Ambient", "Lo-fi"].map((g) => (
-                    <button
-                      className={homeGenre === g ? "active" : ""}
-                      key={g}
-                      onClick={() => setGenre(g)}
-                      aria-pressed={homeGenre === g}
-                    >
-                      {g === "Tudo" && <Sparkles size={14} />}
-                      {g}
-                    </button>
-                  ))}
-                </div>
-                <div className="cards-grid">
-                  {demoTracks
-                    .filter(
-                      (track) =>
-                        homeGenre === "Tudo" || track.genre === homeGenre,
-                    )
-                    .map((track, i) => (
-                      <article
-                        className="music-card"
-                        key={track.id}
-                        style={{ animationDelay: `${i * 45}ms` }}
-                      >
-                        <div className="cover-wrapper">
-                          <button
-                            className="cover-button"
-                            aria-label={`Ouvir ${track.title}`}
-                            onClick={() =>
-                              play(
-                                track,
-                                demoTracks.filter(
-                                  (track) =>
-                                    homeGenre === "Tudo" ||
-                                    track.genre === homeGenre,
-                                ),
-                              )
-                            }
-                          >
-                            <img
-                              src={track.cover}
-                              alt={`Capa abstrata original de ${track.title}`}
-                              loading="lazy"
-                            />
-                            <span className="cover-play">
-                              {player.currentTrack?.id === track.id &&
-                              player.isPlaying ? (
-                                <Pause size={22} fill="currentColor" />
-                              ) : (
-                                <Play size={22} fill="currentColor" />
-                              )}
-                            </span>
-                          </button>
-                          <span className="cover-tag">{track.genre}</span>
-                        </div>
-                        <div className="card-info">
-                          <div>
-                            <button
-                              className="text-button card-title"
-                              onClick={() => {
-                                setDetailsTrack(track);
-                                infoDialog.current?.showModal();
-                              }}
-                            >
-                              {track.title}
-                            </button>
-                            <p>
-                              {track.artist} <span>·</span>{" "}
-                              {formatTime(track.duration)}
-                            </p>
-                          </div>
-                          <IconButton
-                            icon={Heart}
-                            label={
-                              library.favorites.includes(track.id)
-                                ? `Desfavoritar ${track.title}`
-                                : `Favoritar ${track.title}`
-                            }
-                            active={library.favorites.includes(track.id)}
-                            onClick={() => favorite(track)}
-                          />
-                        </div>
-                      </article>
-                    ))}
-                </div>
-              </section>
-              <section className="lower-grid">
-                <div className="quick-list">
-                  <div className="section-heading">
-                    <div>
-                      <p className="eyebrow">UMA DESCOBERTA DE CADA VEZ</p>
-                      <h2>Deixe acontecer</h2>
-                    </div>
-                    <button
-                      className="shuffle-link"
-                      onClick={() => {
-                        const ordered = [...demoTracks].sort(
-                          () => Math.random() - 0.5,
-                        );
-                        player.playTrack(ordered[0], ordered);
-                      }}
-                    >
-                      <Shuffle size={16} />
-                      Surpreenda-me
-                    </button>
-                  </div>
-                  {trackRows(demoTracks.slice(0, 3))}
-                </div>
-                <div className="local-promo">
-                  <span className="promo-icon">
-                    <FolderOpen size={26} strokeWidth={1.5} />
-                  </span>
-                  <span className="eyebrow">A SUA COLEÇÃO, DO SEU JEITO</span>
-                  <h3>
-                    Traga seu som
-                    <br />
-                    para cá.
-                  </h3>
-                  <p>
-                    Abra arquivos de áudio do seu dispositivo. Eles ficam só com
-                    você, nesta sessão.
-                  </p>
-                  <button
-                    onClick={() => fileInput.current?.click()}
-                    disabled={importing}
-                  >
-                    Escolher arquivos <ArrowRight size={17} />
-                  </button>
-                </div>
-              </section>
-            </>
+            <HomePage catalog={catalog} shelfTracks={shelfTracks} homeGenre={homeGenre}
+              catalogGenres={catalogGenres} setGenre={setGenre} setQuery={setQuery} go={go}
+              player={player} play={play} favorites={library.favorites} favorite={favorite}
+              onDetails={showDetails} onImport={openFiles} importing={importing || localAudio.loading} trackRows={trackRows} />
           )}
 
           {route === "buscar" && (
-            <>
-              <div className="page-intro">
-                <div>
-                  <p className="eyebrow">SIGA SUA CURIOSIDADE</p>
-                  <h1>
-                    O que você quer ouvir<span>?</span>
-                  </h1>
-                  <p>Encontre uma faixa, um álbum ou uma nova atmosfera.</p>
-                </div>
-              </div>
-              <form
-                className="search-box"
-                role="search"
-                onSubmit={(e) => e.preventDefault()}
-              >
-                <Search size={22} />
-                <input
-                  autoFocus
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Busque por faixa, artista, álbum ou gênero"
-                  aria-label="Buscar músicas"
-                />
-                {query && (
-                  <IconButton
-                    icon={X}
-                    label="Limpar busca"
-                    onClick={() => setQuery("")}
-                  />
-                )}
-              </form>
-              <div
-                className="genre-filters"
-                aria-label="Filtrar resultados por gênero"
-              >
-                {[
-                  "Tudo",
-                  "Eletrônica",
-                  "Ambient",
-                  "Lo-fi",
-                  ...(localTracks.length ? ["Local"] : []),
-                ].map((g) => (
-                  <button
-                    key={g}
-                    className={genre === g ? "active" : ""}
-                    onClick={() => setGenre(g)}
-                    aria-pressed={genre === g}
-                  >
-                    {g}
-                  </button>
-                ))}
-              </div>
-              <div className="section-heading search-heading">
-                <h2>
-                  {query.trim() ? "Resultados da busca" : "Explore o catálogo"}
-                </h2>
-                <span className="muted">
-                  {visibleTracks.length}{" "}
-                  {visibleTracks.length === 1 ? "faixa" : "faixas"}
-                </span>
-              </div>
-              {visibleTracks.length ? (
-                trackRows(visibleTracks)
-              ) : (
-                <EmptyState
-                  icon={Search}
-                  title="Nenhum som por esse nome"
-                  description="Tente outro termo ou escolha um gênero diferente."
-                  action="Limpar filtros"
-                  onAction={() => {
-                    setQuery("");
-                    setGenre("Tudo");
-                  }}
-                />
-              )}
-            </>
+            <SearchPage catalog={catalog} query={query} setQuery={setQuery} genre={genre}
+              setGenre={setGenre} catalogGenres={catalogGenres} hasLocalTracks={localTracks.length > 0}
+              visibleTracks={visibleTracks} trackRows={trackRows} />
           )}
 
           {route === "biblioteca" && (
-            <>
-              <div className="page-intro">
-                <div>
-                  <p className="eyebrow">SEU PEQUENO UNIVERSO</p>
-                  <h1>
-                    Sua biblioteca<span>.</span>
-                  </h1>
-                  <p>As descobertas que merecem ficar por perto.</p>
-                </div>
-                <button
-                  className="secondary-button"
-                  onClick={() => openPlaylistDialog()}
-                >
-                  <Plus size={17} />
-                  Criar playlist
-                </button>
-              </div>
-              <div className="library-tabs" aria-label="Seções da biblioteca">
-                {[
-                  ["favorites", "Músicas curtidas", favoriteTracks.length],
-                  ["playlists", "Playlists", library.playlists.length],
-                  ["local", "Arquivos locais", localTracks.length],
-                ].map(([id, name, count]) => (
-                  <button
-                    key={id}
-                    className={libraryTab === id ? "active" : ""}
-                    aria-pressed={libraryTab === id}
-                    onClick={() => setLibraryTab(String(id))}
-                  >
-                    {name}
-                    <span>{count}</span>
-                  </button>
-                ))}
-              </div>
-              {libraryTab === "favorites" && (
-                <>
-                  <div className="collection-banner">
-                    <div className="big-favorite">
-                      <Heart size={42} fill="currentColor" />
-                    </div>
-                    <div>
-                      <p className="eyebrow">ESCOLHIDAS POR VOCÊ</p>
-                      <h2>Músicas curtidas</h2>
-                      <p>
-                        {favoriteTracks.length} faixas · Salvas neste navegador
-                      </p>
-                    </div>
-                    {favoriteTracks.length > 0 && (
-                      <button
-                        className="round-play"
-                        aria-label="Ouvir músicas curtidas"
-                        onClick={() =>
-                          player.playTrack(favoriteTracks[0], favoriteTracks)
-                        }
-                      >
-                        <Play size={24} fill="currentColor" />
-                      </button>
-                    )}
-                  </div>
-                  {trackRows(
-                    favoriteTracks,
-                    "Sua próxima favorita está por aí",
-                  )}
-                </>
-              )}
-              {libraryTab === "playlists" &&
-                (library.playlists.length ? (
-                  <div className="playlist-grid">
-                    {library.playlists.map((p) => (
-                      <button
-                        key={p.id}
-                        className="playlist-card"
-                        onClick={() => go(`playlist/${p.id}`)}
-                      >
-                        <span>
-                          <ListMusic size={46} />
-                        </span>
-                        <strong>{p.name}</strong>
-                        <small>
-                          {
-                            tracks.filter((t) => p.trackIds.includes(t.id))
-                              .length
-                          }{" "}
-                          faixas disponíveis
-                        </small>
-                      </button>
-                    ))}
-                    <button
-                      className="playlist-card add-playlist-card"
-                      onClick={() => openPlaylistDialog()}
-                    >
-                      <span>
-                        <Plus size={42} />
-                      </span>
-                      <strong>Uma nova história</strong>
-                      <small>Crie uma playlist</small>
-                    </button>
-                  </div>
-                ) : (
-                  <EmptyState
-                    icon={ListMusic}
-                    title="Cada momento merece uma playlist"
-                    description="Dê um nome à sua seleção e adicione suas faixas preferidas."
-                    action="Criar minha primeira playlist"
-                    onAction={() => openPlaylistDialog()}
-                  />
-                ))}
-              {libraryTab === "local" && (
-                <>
-                  <div className="notice">
-                    <FolderOpen size={19} />
-                    <p>
-                      Seus arquivos não são enviados a nenhum servidor. Abra-os
-                      novamente ao recarregar a página.
-                    </p>
-                    <button
-                      className="subtle-link"
-                      onClick={() => fileInput.current?.click()}
-                      disabled={importing}
-                    >
-                      Abrir áudio <Plus size={15} />
-                    </button>
-                  </div>
-                  {trackRows(localTracks, "Seu som também tem lugar aqui")}
-                </>
-              )}
-            </>
+            <LibraryPage library={library} libraryTab={libraryTab} setLibraryTab={setLibraryTab}
+              favoriteTracks={favoriteTracks} localTracks={localTracks} tracks={tracks} player={player}
+              trackRows={trackRows} go={go} onCreatePlaylist={() => openPlaylistDialog()}
+              onImport={openFiles} importing={importing || localAudio.loading} />
           )}
 
           {selectedPlaylist && (
@@ -1148,14 +642,14 @@ export default function App() {
                   </div>
                 </div>
               </div>
-              {selectedPlaylist.trackIds.some(
+              {!localAudio.loading && catalog.status !== "loading" && selectedPlaylist.trackIds.some(
                 (id) => !tracks.some((t) => t.id === id),
               ) && (
                 <div className="notice">
                   <CircleAlert size={18} />
                   <p>
-                    Esta playlist inclui arquivos locais de outra sessão. Abra
-                    os arquivos novamente para ouvi-los.
+                    Algumas faixas desta playlist estão indisponíveis. Verifique o
+                    catálogo ou abra novamente os arquivos locais.
                   </p>
                 </div>
               )}
@@ -1207,270 +701,9 @@ export default function App() {
         </main>
       </div>
 
-      <section
-        className="player"
-        aria-label="Player de áudio"
-        inert={mobileMenu}
-      >
-        <div className="now-playing">
-          {player.currentTrack ? (
-            <>
-              <button
-                className="now-cover"
-                onClick={() => {
-                  setDetailsTrack(player.currentTrack);
-                  infoDialog.current?.showModal();
-                }}
-                aria-label={`Detalhes de ${player.currentTrack.title}`}
-              >
-                <img src={player.currentTrack.cover} alt="" />
-              </button>
-              <div className="now-details">
-                <strong>{player.currentTrack.title}</strong>
-                <span>
-                  {player.currentTrack.artist}
-                  <i>·</i>
-                  {player.currentTrack.source === "demo"
-                    ? "Demo original"
-                    : "Arquivo local"}
-                </span>
-              </div>
-              <IconButton
-                icon={Heart}
-                label={
-                  library.favorites.includes(player.currentTrack.id)
-                    ? "Desfavoritar faixa atual"
-                    : "Favoritar faixa atual"
-                }
-                active={library.favorites.includes(player.currentTrack.id)}
-                onClick={() => {
-                  if (player.currentTrack) favorite(player.currentTrack);
-                }}
-              />
-            </>
-          ) : (
-            <span className="muted">Escolha seu próximo som</span>
-          )}
-        </div>
-        <div className="playback">
-          <div className="playback-buttons">
-            <IconButton
-              icon={Shuffle}
-              label="Reprodução aleatória"
-              active={player.shuffle}
-              onClick={player.toggleShuffle}
-            />
-            <IconButton
-              icon={SkipBack}
-              label="Faixa anterior"
-              disabled={!player.currentTrack}
-              onClick={player.previous}
-            />
-            <button
-              className="main-play-button"
-              aria-label={
-                player.isPlaying ? "Pausar reprodução" : "Iniciar reprodução"
-              }
-              disabled={!player.currentTrack}
-              onClick={player.togglePlay}
-            >
-              {player.isPlaying ? (
-                <Pause size={19} fill="currentColor" />
-              ) : (
-                <Play size={19} fill="currentColor" />
-              )}
-            </button>
-            <IconButton
-              icon={SkipForward}
-              label="Próxima faixa"
-              disabled={!player.currentTrack}
-              onClick={player.next}
-            />
-            <IconButton
-              icon={player.repeat === "one" ? Repeat1 : Repeat}
-              label={`Repetição: ${player.repeat === "off" ? "desligada" : player.repeat === "all" ? "todas" : "uma faixa"}`}
-              active={player.repeat !== "off"}
-              onClick={player.cycleRepeat}
-            />
-          </div>
-          <div className="progress-control">
-            <span>{formatTime(player.currentTime)}</span>
-            <input
-              type="range"
-              min="0"
-              max={player.duration || player.currentTrack?.duration || 0}
-              step="0.1"
-              value={Math.min(
-                player.currentTime,
-                player.duration || player.currentTrack?.duration || 0,
-              )}
-              onChange={(e) => player.seek(Number(e.target.value))}
-              aria-label="Progresso da faixa"
-              aria-valuetext={`${formatTime(player.currentTime)} de ${formatTime(player.duration || player.currentTrack?.duration || 0)}`}
-              style={
-                {
-                  "--range-fill": `${player.duration ? (player.currentTime / player.duration) * 100 : 0}%`,
-                } as React.CSSProperties
-              }
-            />
-            <span>
-              {formatTime(
-                player.duration || player.currentTrack?.duration || 0,
-              )}
-            </span>
-          </div>
-        </div>
-        <div className="player-extras">
-          <IconButton
-            icon={ListMusic}
-            label={
-              queueOpen
-                ? "Fechar fila de reprodução"
-                : "Abrir fila de reprodução"
-            }
-            active={queueOpen}
-            onClick={() => setQueueOpen((v) => !v)}
-          />
-          <span className="player-separator" />
-          <div className="volume-control">
-            <IconButton
-              icon={
-                player.muted || !player.volume
-                  ? VolumeX
-                  : player.volume < 0.5
-                    ? Volume1
-                    : Volume2
-              }
-              label={player.muted ? "Ativar som" : "Silenciar"}
-              onClick={player.toggleMute}
-            />
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={player.muted ? 0 : player.volume}
-              aria-label="Volume"
-              aria-valuetext={`${Math.round((player.muted ? 0 : player.volume) * 100)} por cento`}
-              onChange={(e) => player.changeVolume(Number(e.target.value))}
-              style={
-                {
-                  "--range-fill": `${(player.muted ? 0 : player.volume) * 100}%`,
-                } as React.CSSProperties
-              }
-            />
-          </div>
-        </div>
-      </section>
-
-      {queueOpen && (
-        <aside className="queue-panel" aria-label="Fila de reprodução">
-          <div className="queue-heading">
-            <div>
-              <p className="eyebrow">NA SEQUÊNCIA</p>
-              <h2>Sua fila</h2>
-            </div>
-            <IconButton
-              icon={X}
-              label="Fechar fila"
-              onClick={() => setQueueOpen(false)}
-            />
-          </div>
-          <p className="muted queue-caption">
-            {player.queue.length} faixas ·{" "}
-            {player.shuffle ? "Modo aleatório" : "Na sua ordem"}
-          </p>
-          <div className="queue-list">
-            {player.queue.map((track, i) => (
-              <div
-                className={`queue-track ${i === player.currentIndex ? "selected" : ""}`}
-                key={`${track.id}-${i}`}
-              >
-                <button
-                  onClick={() => player.playAtIndex(i)}
-                  aria-label={`Ouvir ${track.title} na fila`}
-                >
-                  <img src={track.cover} alt="" />
-                  <span>
-                    <strong>{track.title}</strong>
-                    <small>
-                      {i === player.currentIndex
-                        ? player.isPlaying
-                          ? "Tocando agora"
-                          : "Selecionada"
-                        : track.artist}
-                    </small>
-                  </span>
-                  {i === player.currentIndex && player.isPlaying && (
-                    <AudioLines size={16} />
-                  )}
-                </button>
-                <IconButton
-                  icon={X}
-                  label={`Remover ${track.title} da fila`}
-                  onClick={() => player.removeFromQueue(i)}
-                />
-              </div>
-            ))}
-          </div>
-          <div className="queue-settings">
-            <p className="eyebrow">CONTROLES DE REPRODUÇÃO</p>
-            <div className="queue-settings-row">
-              <IconButton
-                icon={Shuffle}
-                label="Reprodução aleatória no celular"
-                active={player.shuffle}
-                onClick={player.toggleShuffle}
-              />
-              <IconButton
-                icon={player.repeat === "one" ? Repeat1 : Repeat}
-                label={`Repetição no celular: ${player.repeat === "off" ? "desligada" : player.repeat === "all" ? "todas" : "uma faixa"}`}
-                active={player.repeat !== "off"}
-                onClick={player.cycleRepeat}
-              />
-              <IconButton
-                icon={player.muted || !player.volume ? VolumeX : Volume2}
-                label={
-                  player.muted
-                    ? "Ativar som no celular"
-                    : "Silenciar no celular"
-                }
-                onClick={player.toggleMute}
-              />
-              <input
-                type="range"
-                aria-label="Volume no celular"
-                min="0"
-                max="1"
-                step="0.01"
-                value={player.muted ? 0 : player.volume}
-                onChange={(event) =>
-                  player.changeVolume(Number(event.target.value))
-                }
-                style={
-                  {
-                    "--range-fill": `${(player.muted ? 0 : player.volume) * 100}%`,
-                  } as React.CSSProperties
-                }
-              />
-            </div>
-          </div>
-          <button
-            className="secondary-button"
-            onClick={player.clearQueue}
-            disabled={player.queue.length <= 1}
-          >
-            <Trash2 size={15} />
-            Limpar próximas faixas
-          </button>
-        </aside>
-      )}
-      {player.error && (
-        <div className="audio-error" role="alert">
-          <CircleAlert size={19} />
-          <span>{player.error}</span>
-        </div>
-      )}
+      <Player player={player} mobileMenu={mobileMenu} queueOpen={queueOpen}
+        onToggleQueue={() => setQueueOpen((value) => !value)} onCloseQueue={() => setQueueOpen(false)}
+        favorites={library.favorites} favorite={favorite} onDetails={showDetails} />
       <div
         className={`toast ${toast ? "toast-visible" : ""}`}
         role="status"
@@ -1620,7 +853,9 @@ export default function App() {
             <p className="eyebrow">
               {detailsTrack.source === "demo"
                 ? "COMPOSIÇÃO SINTÉTICA ORIGINAL"
-                : "ARQUIVO DO SEU DISPOSITIVO"}
+                : detailsTrack.source === "catalog"
+                  ? "CATÁLOGO GALADA"
+                  : "ARQUIVO DO SEU DISPOSITIVO"}
             </p>
             <h2>{detailsTrack.title}</h2>
             <p>
@@ -1632,7 +867,9 @@ export default function App() {
               <span>
                 {detailsTrack.source === "demo"
                   ? "Demonstração"
-                  : "Nesta sessão"}
+                  : detailsTrack.source === "catalog"
+                    ? "Catálogo"
+                    : "Arquivo local"}
               </span>
             </div>
             <button
@@ -1666,8 +903,8 @@ export default function App() {
             </p>
             <p>
               O player reproduz áudio de verdade. Favoritos e playlists ficam
-              neste navegador. Seus arquivos locais ficam disponíveis durante a
-              sessão e não são enviados a servidores.
+              neste navegador. Seus arquivos locais são salvos neste navegador
+              quando há espaço e não são enviados a servidores.
             </p>
             <p>
               Este projeto não tem vínculo com plataformas de streaming e não
@@ -1710,33 +947,5 @@ function NavItem({
       <span>{label}</span>
       {active && <span className="nav-active-dot" />}
     </a>
-  );
-}
-
-function EmptyState({
-  icon: Icon,
-  title,
-  description,
-  action,
-  onAction,
-}: {
-  icon: LucideIcon;
-  title: string;
-  description: string;
-  action: string;
-  onAction: () => void;
-}) {
-  return (
-    <div className="empty-state">
-      <span>
-        <Icon size={31} strokeWidth={1.3} />
-      </span>
-      <h2>{title}</h2>
-      <p>{description}</p>
-      <button className="secondary-button" onClick={onAction}>
-        {action}
-        <ArrowRight size={16} />
-      </button>
-    </div>
   );
 }

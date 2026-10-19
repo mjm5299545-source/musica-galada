@@ -7,7 +7,7 @@ export interface Track {
   duration: number;
   cover: string;
   src: string;
-  source: "demo" | "local";
+  source: "demo" | "local" | "catalog";
 }
 
 export interface Playlist {

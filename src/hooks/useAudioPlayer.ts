@@ -261,11 +261,13 @@ export function useAudioPlayer(initialTracks: Track[]) {
   }, [advance]);
 
   useEffect(() => {
+    // The cleanup invalidates the latest request, rather than a captured number.
+    const requests = requestRef;
     mountedRef.current = true;
     replaceAudio(trackRef.current, desiredPlayingRef.current);
     return () => {
       mountedRef.current = false;
-      ++requestRef.current;
+      ++requests.current;
       cleanupRef.current?.();
       cleanupRef.current = null;
       audioRef.current = null;

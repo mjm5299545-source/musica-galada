@@ -373,7 +373,7 @@ test("real audio advances, pauses, seeks and switches tracks", async ({
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
-test("imported audio plays and reopening the same file restores playlist membership", async ({
+test("imported audio persists with playlist membership and reopening does not duplicate it", async ({
   page,
 }) => {
   await createPlaylist(page, "Meu som");
@@ -392,14 +392,10 @@ test("imported audio plays and reopening the same file restores playlist members
     .poll(async () => Number(await progress.inputValue()), { timeout: 10_000 })
     .toBeGreaterThan(0.3);
   await page.reload();
-  await expect(
-    page.getByText("Esta playlist inclui arquivos locais de outra sessão.", {
-      exact: false,
-    }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("list", { name: "Faixas", exact: true }),
-  ).toHaveCount(0);
+  await expect(rows(page)).toHaveCount(1);
+  await expect(rows(page).first()).toContainText("antes-do-sol");
+  await page.getByRole("button", { name: "Ouvir antes-do-sol", exact: true }).click();
+  await expect.poll(async () => Number(await progress.inputValue())).toBeGreaterThan(0.3);
   await page.getByLabel("Selecionar arquivos de áudio").setInputFiles(demoFile);
   await expect(page).toHaveURL(/#biblioteca$/);
   await expect(rows(page)).toHaveCount(1);
@@ -407,7 +403,7 @@ test("imported audio plays and reopening the same file restores playlist members
   await expect(rows(page)).toHaveCount(1);
   await expect(rows(page).first()).toContainText("antes-do-sol");
   await expect(
-    page.getByText("Esta playlist inclui arquivos locais de outra sessão.", {
+    page.getByText("Algumas faixas desta playlist estão indisponíveis.", {
       exact: false,
     }),
   ).toHaveCount(0);

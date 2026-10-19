@@ -18,7 +18,7 @@ O catálogo deve ser a fonte dos identificadores usados pela interface, pela fil
 
 ## Contratos de dados
 
-`src/types.ts` define `Track` com identificador, título, artista, álbum, gênero, duração, capa, origem do áudio e URL de reprodução. A origem distingue demonstrações (`demo`) de arquivos escolhidos localmente (`local`). `Playlist` reúne identificador, nome e uma lista de identificadores de faixas. O modo de repetição aceita `off`, `all` e `one`.
+`src/types.ts` define `Track` com identificador, título, artista, álbum, gênero, duração, capa, origem do áudio e URL de reprodução. A origem distingue demonstrações (`demo`), faixas de `public/catalog.json` (`catalog`) e arquivos escolhidos localmente (`local`). `Playlist` reúne identificador, nome e uma lista de identificadores de faixas. O modo de repetição aceita `off`, `all` e `one`.
 
 A duração é expressa em segundos. Metadados e referências de mídia devem permanecer separados: uma entrada de catálogo não comprova que o navegador conseguirá decodificar ou reproduzir uma fonte de áudio.
 
@@ -28,6 +28,9 @@ A duração é expressa em segundos. Metadados e referências de mídia devem pe
 | --- | --- |
 | `src/main.tsx` | Monta a aplicação React e importa os estilos globais. |
 | `src/App.tsx` | Compõe as seções, navegação por hash, busca, importação local, diálogos e controles da interface. |
+| `src/components/Home.tsx`, `SearchPage.tsx`, `LibraryPage.tsx`, `Player.tsx` | Apresentam as seções e os controles, preservando os estilos existentes. |
+| `src/data/catalogLoader.ts`, `src/hooks/useCatalog.ts` | Carregam e validam o catálogo JSON, com estados de carregamento, vazio e falha. |
+| `src/data/localAudioStore.ts`, `src/hooks/useLocalTracks.ts` | Persistem bytes e metadados de arquivos importados no IndexedDB e recriam URLs locais ao carregar. |
 | `src/types.ts` | Define os contratos compartilhados de faixas, playlists e repetição. |
 | `src/data/catalog.ts` | Descreve seis faixas sintéticas de demonstração e seus arquivos locais. |
 | `src/hooks/useAudioPlayer.ts` | Gerencia o elemento de áudio, fila, seleção, reprodução, progresso, volume, mudo, aleatório e repetição. |
@@ -47,7 +50,7 @@ A busca considera título, artista, álbum e gênero, sem diferenciar acentos ou
 
 A importação abre arquivos escolhidos pelo usuário com URLs locais do navegador, sem enviar áudio a um servidor. O navegador precisa conseguir ler os metadados e decodificar o formato. A interface limita cada seleção a 30 arquivos e cada arquivo a 100 MB. Uma extensão aceita não garante suporte do navegador ao codec.
 
-Os bytes dos arquivos importados não são gravados no armazenamento persistente; precisam ser abertos novamente após recarregar. O identificador considera nome, tamanho e data de modificação do arquivo, permitindo reencontrar referências de favoritos e playlists quando o mesmo arquivo é reaberto. Alterações nesses atributos podem produzir outro identificador; não há comparação criptográfica do conteúdo nem sincronização de arquivos.
+Os bytes e metadados dos arquivos importados são gravados no IndexedDB (`galada-local-audio:v1`, object store `tracks`) após validar a duração. Cada gravação só é considerada salva quando a transação termina. Ao carregar, novas object URLs são criadas a partir dos blobs; URLs de sessões anteriores não são persistidas. Quando o armazenamento falha, os arquivos ainda podem ser reproduzidos na sessão, com aviso. Limpar os dados do site remove áudios e biblioteca. O identificador considera nome, tamanho e data de modificação do arquivo, permitindo reencontrar referências de favoritos e playlists quando o mesmo arquivo é reaberto. Alterações nesses atributos podem produzir outro identificador; não há comparação criptográfica do conteúdo nem sincronização de arquivos.
 
 As URLs locais são liberadas quando a aplicação é desmontada. A fila e a posição de reprodução pertencem à sessão atual.
 
@@ -59,18 +62,19 @@ O crédito `Galada Lab` identifica a produção sintética da demonstração, se
 
 ## Comandos do projeto
 
-Use Node.js 22.12 ou superior e instale dependências pelo lockfile com `npm ci`.
+Use Node.js 24 (recomendado) ou 22.13+ na série 22 e instale dependências pelo lockfile com `npm ci`.
 
 | Comando | Finalidade |
 | --- | --- |
 | `npm run dev` | Inicia o servidor de desenvolvimento, acessível pela interface de rede do ambiente. |
+| `npm run lint` | Verifica TypeScript e regras de hooks React com ESLint. |
 | `npm run typecheck` | Valida os tipos TypeScript. |
 | `npm test` | Executa os testes unitários com Vitest. |
 | `npm run test:e2e` | Executa os testes de navegador com Playwright; exige navegador compatível instalado. |
 | `npm run build` | Valida tipos e produz os arquivos estáticos em `dist/`. |
 | `npm run preview` | Serve a compilação de produção para conferência local. |
 
-Os comandos de teste representam pontos de validação; seus resultados devem ser informados a partir da execução. Não há comando de lint configurado no manifesto.
+Os comandos de teste representam pontos de validação; seus resultados devem ser informados a partir da execução.
 
 ## Acessibilidade e comportamento
 
@@ -80,7 +84,7 @@ O player permanece acessível entre as seções da aplicação. Layouts menores 
 
 ## Integrações futuras
 
-Um catálogo real exige API documentada, modelo de dados, tratamento de falhas e autorização do provedor. Áudio comercial exige direitos de uso e um mecanismo de reprodução autorizado. Contas, sincronização entre dispositivos e playlists compartilhadas exigem backend e autenticação próprios.
+O catálogo próprio já pode ser servido como JSON estático. Uma integração remota exige API documentada, modelo de dados, tratamento de falhas e autorização do provedor. Áudio comercial exige direitos de uso e um mecanismo de reprodução autorizado. Contas, sincronização entre dispositivos e playlists compartilhadas exigem backend e autenticação próprios.
 
 Segredos não devem ser incluídos no código cliente nem em variáveis de compilação expostas ao navegador. Tokens privados devem permanecer em um serviço de backend. O documento HTML de referência não fornece esses pré-requisitos.
 
